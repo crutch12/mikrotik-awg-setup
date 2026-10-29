@@ -1,0 +1,64 @@
+# домены, которые идут через vpn
+# поддомены подхватываются сами, api.anthropic.com писать не надо
+# можно писать и подсети, они идут в vpn сразу, даже если dns идёт мимо роутера
+# после правки запусти python vpn.py sync
+
+# anthropic / claude
+160.79.104.0/23
+anthropic.com
+claude.ai
+claude.com
+claudeusercontent.com
+clau.de
+
+# openai / chatgpt / codex / sora
+openai.com
+chatgpt.com
+chat.com
+oaistatic.com
+oaiusercontent.com
+sora.com
+
+# google gemini / ai studio / notebooklm
+gemini.google.com
+gemini.google
+aistudio.google.com
+ai.google.dev
+makersuite.google.com
+notebooklm.google.com
+notebooklm.google
+labs.google
+jules.google.com
+deepmind.google
+generativelanguage.googleapis.com
+alkalimakersuite-pa.clients6.google.com
+robinfrontend-pa.googleapis.com
+proactivebackend-pa.googleapis.com
+aisandbox-pa.googleapis.com
+cloudcode-pa.googleapis.com
+
+# xai / grok
+x.ai
+grok.com
+
+# perplexity
+perplexity.ai
+pplx.ai
+
+# microsoft / github copilot
+copilot.microsoft.com
+githubcopilot.com
+
+# cursor / windsurf
+cursor.com
+cursor.sh
+cursorapi.com
+windsurf.com
+codeium.com
+
+# прочее
+meta.ai
+mistral.ai
+elevenlabs.io
+midjourney.com
+suno.com
