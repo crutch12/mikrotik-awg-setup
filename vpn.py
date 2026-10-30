@@ -107,6 +107,8 @@ def install_rsc():
         f'dst-address=!{ROUTER_IP} action=redirect to-ports=53 comment="{TAG} dns"',
         f"/ip firewall nat add chain=dstnat in-interface-list=LAN dst-port=53 protocol=tcp "
         f'dst-address=!{ROUTER_IP} action=redirect to-ports=53 comment="{TAG} dns"',
+        # dns провайдера может отвечать мусором на любой .local, а с nxdomain клиенты идут в mdns
+        f'/ip dns static add name=local type=NXDOMAIN match-subdomain=yes comment="{TAG} local"',
         # fasttrack пропускает mangle, поэтому помеченные соединения в него не пускаем
         f"/ip firewall filter add chain=forward connection-mark={TAG} action=accept "
         f'comment="{TAG} no fasttrack" place-before=[find comment="defconf: fasttrack"]',
