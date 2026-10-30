@@ -107,8 +107,6 @@ def install_rsc():
         f'dst-address=!{ROUTER_IP} action=redirect to-ports=53 comment="{TAG} dns"',
         f"/ip firewall nat add chain=dstnat in-interface-list=LAN dst-port=53 protocol=tcp "
         f'dst-address=!{ROUTER_IP} action=redirect to-ports=53 comment="{TAG} dns"',
-        # dns провайдера может отвечать мусором на любой .local, а с nxdomain клиенты идут в mdns
-        f'/ip dns static add name=local type=NXDOMAIN match-subdomain=yes comment="{TAG} local"',
         # fasttrack пропускает mangle, поэтому помеченные соединения в него не пускаем
         f"/ip firewall filter add chain=forward connection-mark={TAG} action=accept "
         f'comment="{TAG} no fasttrack" place-before=[find comment="defconf: fasttrack"]',
@@ -200,6 +198,10 @@ def prepare(c):
         time.sleep(5)
         run(c, f"/disk format {DISK} file-system=ext4 label=vpn mbr-partition-table=no", timeout=600)
     print(run(c, f"/disk print where slot={DISK}").strip())
+    if not run(c, ":put [/ip dns get servers]").strip():
+        print("\nроутер берёт DNS у провайдера, лучше поставить публичный, см. шаг 2 в README:")
+        print("/ip dhcp-client set [find interface=ether1] use-peer-dns=no")
+        print("/ip dns set servers=1.1.1.1,8.8.8.8")
     print("роутер готов, дальше python vpn.py install")
 
 
