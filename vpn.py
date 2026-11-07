@@ -8,9 +8,11 @@ python vpn.py off         выключить, всё ходит напрямую
 python vpn.py on          включить обратно
 python vpn.py status      что сейчас происходит
 python vpn.py uninstall   снести всё, что ставил install
+python vpn.py export-img E:/mikrotik/vpn.img   скопировать vpn.img с роутера, например на новую флешку
 
 Сервера берутся из servers/awg-*.conf по алфавиту, первый основной, остальные запасные
 """
+import ftplib
 import sys
 import tempfile
 import time
@@ -24,6 +26,7 @@ TAG = "vpn-ai"
 TABLE = "vpn-ai"
 IFLIST = "VPN-AI"
 DNS = "1.1.1.1"
+INTERNAL_ZONES = ["local", "loc"]
 IMAGE = ENV["ROS_IMAGE"]
 DISK = "vpnimg"
 CONF_DIR = f"{DISK}/awg/conf"
@@ -107,6 +110,10 @@ def install_rsc():
         f'dst-address=!{ROUTER_IP} action=redirect to-ports=53 comment="{TAG} dns"',
         f"/ip firewall nat add chain=dstnat in-interface-list=LAN dst-port=53 protocol=tcp "
         f'dst-address=!{ROUTER_IP} action=redirect to-ports=53 comment="{TAG} dns"',
+        # внутренние зоны наружу не отпускаем: для .local дальше сработает mdns,
+        # а корпоративные имена не утекут в публичный dns
+        *[f'/ip dns static add name={z} type=NXDOMAIN match-subdomain=yes comment="{TAG} internal"'
+          for z in INTERNAL_ZONES],
         # fasttrack пропускает mangle, поэтому помеченные соединения в него не пускаем
         f"/ip firewall filter add chain=forward connection-mark={TAG} action=accept "
         f'comment="{TAG} no fasttrack" place-before=[find comment="defconf: fasttrack"]',
@@ -192,12 +199,23 @@ def prepare(c):
         usb = ENV["ROS_USB"] or find_usb(c)
         if not usb:
             return
-        print(f"создаю {usb}/mikrotik/vpn.img на 1 GB и форматирую в ext4, остальное на флешке не трогается")
-        run(c, f"/file add name={usb}/mikrotik type=directory")
-        run(c, f"/disk add type=file file-path={usb}/mikrotik/vpn.img file-size=1G slot={DISK}", timeout=600)
-        time.sleep(5)
-        run(c, f"/disk format {DISK} file-system=ext4 label=vpn mbr-partition-table=no", timeout=600)
-    print(run(c, f"/disk print where slot={DISK}").strip())
+        img = f"{usb}/mikrotik/vpn.img"
+        if run(c, f':put [:len [/file find name="{img}"]]').strip() != "0":
+            # образ подготовлен заранее, например перенесён со старой флешки
+            print(f"нашёл {img}, подключаю как есть")
+            run(c, f"/disk add type=file file-path={img} slot={DISK}", timeout=600)
+            time.sleep(5)
+        else:
+            print(f"создаю {img} на 1 GB и форматирую в ext4, остальное на флешке не трогается")
+            run(c, f"/file add name={usb}/mikrotik type=directory")
+            run(c, f"/disk add type=file file-path={img} file-size=1G slot={DISK}", timeout=600)
+            time.sleep(5)
+            run(c, f"/disk format {DISK} file-system=ext4 label=vpn mbr-partition-table=no", timeout=600)
+    swap = f"{DISK}/swap.img"
+    if (run(c, ':put [:len [/disk find slot=swapimg]]').strip() == "0"
+            and run(c, f':put [:len [/file find name="{swap}"]]').strip() != "0"):
+        run(c, f"/disk add type=file file-path={swap} swap=yes slot=swapimg")
+    print(run(c, f"/disk print where slot~\"{DISK}|swapimg\"").strip())
     if not run(c, ":put [/ip dns get servers]").strip():
         print("\nроутер берёт DNS у провайдера, лучше поставить публичный, см. шаг 2 в README:")
         print("/ip dhcp-client set [find interface=ether1] use-peer-dns=no")
@@ -215,6 +233,44 @@ def find_usb(c):
     else:
         print(f"дисков несколько ({', '.join(slots)}), укажи нужный в .env: ROS_USB=usb1-part1")
     return ""
+
+
+def export_img(c, dst):
+    """vpn на время копирования выключается, образ отключается, чтобы он не менялся"""
+    src = run(c, f":put [/disk get [find slot={DISK}] model]").strip().lstrip("/")
+    if not src:
+        print("на роутере нет vpnimg")
+        return
+    apply(c, toggle_rsc(True))
+    run(c, "/disk remove [find slot=swapimg]; :delay 2s")
+    run(c, f"/disk remove [find slot={DISK}]; :delay 3s")
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    env = load_env()
+    # sftp у роутера выдаёт ~70 KB/s, ftp на порядок быстрее
+    ftp = ftplib.FTP(env["ROS_HOST"], env["ROS_USER"], env["ROS_PASS"], timeout=60)
+    ftp.voidcmd("TYPE I")
+    total, done, start = ftp.size(src), 0, time.time()
+
+    def write(chunk):
+        nonlocal done
+        f.write(chunk)
+        mb = done // (100 * 2**20)
+        done += len(chunk)
+        if done // (100 * 2**20) > mb or done == total:
+            print(f"{done / 2**20:.0f}/{total / 2**20:.0f} MB, {done / 2**20 / (time.time() - start):.1f} MB/s")
+
+    try:
+        with open(dst, "wb") as f:
+            ftp.retrbinary(f"RETR {src}", write, blocksize=2**20)
+        ftp.quit()
+        if Path(dst).stat().st_size != total:
+            raise RuntimeError(f"скопировалось не целиком: {Path(dst).stat().st_size} из {total}")
+    finally:
+        run(c, f"/disk add type=file file-path={src} slot={DISK}", timeout=600)
+        time.sleep(5)
+        run(c, f"/disk add type=file file-path={DISK}/swap.img swap=yes slot=swapimg")
+        apply(c, toggle_rsc(False))
+    print(f"готово: {dst}. Положи его на новую флешку в mikrotik/vpn.img, вставь её и запусти prepare")
 
 
 def container_state(c):
@@ -271,6 +327,8 @@ def main():
             apply(c, domains_rsc(is_off(c)))
         elif cmd in ("on", "off"):
             apply(c, toggle_rsc(cmd == "off"))
+        elif cmd == "export-img" and len(sys.argv) > 2:
+            export_img(c, sys.argv[2])
         elif cmd == "uninstall":
             apply(c, uninstall_rsc())
         elif cmd == "status":
