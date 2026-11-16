@@ -75,7 +75,7 @@ RouterOS сама умеет только обычный WireGuard, а его в
    ```
    Впиши в `.env` адрес и пароль роутера. Один раз зайди по ssh руками, чтобы ключ роутера попал в `known_hosts`: `ssh admin@192.168.88.1`
 
-4. **Конфиги серверов** положи в `servers/` как `awg-1-main.conf`, `awg-2-reserve.conf` и т.д. Порядок по алфавиту: первый основной, остальные запасные
+4. **Конфиги серверов** положи в `servers/` как `awg-1-main.conf`, `awg-2-reserve.conf` и т.д. Порядок по алфавиту: первый основной, остальные запасные. Потом его можно поменять командой `servers`, см. ниже
 
 5. **Подготовка роутера.** Вставь флешку и запускай, пока не напишет, что роутер готов:
    ```
@@ -103,11 +103,26 @@ python vpn.py off         выключить, всё ходит напрямую
 python vpn.py on          включить
 python vpn.py sync        после правки domains.txt
 python vpn.py conf        после замены конфигов в servers/ или правки awg/start.sh
+python vpn.py servers     какие сервера включены и в каком порядке
+python vpn.py servers second main   second основной, main запасной, остальные выключены
 python vpn.py uninstall   снести всё, что поставил install
 python vpn.py export-img E:/mikrotik/vpn.img   скопировать vpn.img с роутера, например для новой флешки
 python stresstest.py      скорость и нагрузка на роутер, напрямую и через vpn
 python ros.py "/system resource print"   любая команда на роутере
 ```
+
+## Порядок серверов
+
+Имя сервера это имя файла без `awg-N-`: `awg-2-second.conf` это `second`
+
+```
+python vpn.py servers                 показать порядок
+python vpn.py servers second          только second, остальные выключены
+python vpn.py servers second main     second основной, main запасной
+python vpn.py servers main second usa все три, main основной
+```
+
+Команда сразу заливает конфиги на роутер и перезапускает контейнер, VPN пропадает секунд на 10-20. Порядок сохраняется в `servers/order.txt`, файлы серверов переименовывать не надо. Если удалить `order.txt`, снова работают все сервера по алфавиту
 
 ## Как устроено
 

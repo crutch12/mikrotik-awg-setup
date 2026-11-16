@@ -2,3 +2,4 @@
 servers/*.conf
 backup/
 __pycache__/
+servers/order.txt

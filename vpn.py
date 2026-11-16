@@ -9,10 +9,14 @@ python vpn.py on          включить обратно
 python vpn.py status      что сейчас происходит
 python vpn.py uninstall   снести всё, что ставил install
 python vpn.py export-img E:/mikrotik/vpn.img   скопировать vpn.img с роутера, например на новую флешку
+python vpn.py servers     показать сервера и порядок
+python vpn.py servers second main   поставить порядок, кого нет в списке, тот выключен
 
 Сервера берутся из servers/awg-*.conf по алфавиту, первый основной, остальные запасные
+Порядок и выключенные сервера можно задать в servers/order.txt, его пишет команда servers
 """
 import ftplib
+import re
 import sys
 import tempfile
 import time
@@ -36,10 +40,28 @@ VETH, ROUTER_IP, CONT_IP = "veth-awg", "172.18.0.1", "172.18.0.2"
 MENUS = ["/ip firewall mangle", "/ip firewall filter", "/ip firewall nat", "/ip route", "/ip dns static"]
 
 
+ORDER = HERE / "servers" / "order.txt"
+
+
+def server_files():
+    """{имя: файл}, имя это awg-1-main.conf без awg-1-, то есть main"""
+    files = sorted((HERE / "servers").glob("awg-*.conf"))
+    return {re.sub(r"^awg-(\d+-)?", "", f.stem): f for f in files}
+
+
+def active_servers():
+    files = server_files()
+    if not ORDER.exists():
+        return list(files)
+    names = ORDER.read_text(encoding="utf-8").split()
+    return [n for n in names if n in files]
+
+
 def awg_confs():
     """servers/awg-*.conf превращает в awg1.conf, awg2.conf... для контейнера"""
     out = {}
-    for i, f in enumerate(sorted((HERE / "servers").glob("awg-*.conf")), 1):
+    files = server_files()
+    for i, f in enumerate((files[n] for n in active_servers()), 1):
         lines = []
         for ln in f.read_text(encoding="utf-8").splitlines():
             # dns и маршруты рулит start.sh, awg-quick туда лезть не должен
@@ -168,6 +190,10 @@ def apply(c, rsc):
 def upload_confs(c):
     run(c, f"/file add name={DISK}/awg type=directory; /file add name={CONF_DIR} type=directory")
     sftp = c.open_sftp()
+    # старые awgN.conf убираем, иначе выключенный сервер так и останется в контейнере
+    for name in sftp.listdir(CONF_DIR):
+        if re.fullmatch(r"awg\d+\.conf", name):
+            sftp.remove(f"{CONF_DIR}/{name}")
     with sftp.open(f"{CONF_DIR}/start.sh", "w") as f:
         f.write((HERE / "awg" / "start.sh").read_text(encoding="utf-8").replace("\r\n", "\n"))
     for name, text in awg_confs().items():
@@ -318,6 +344,25 @@ def main():
             upload_confs(c)
             apply(c, install_rsc())
             wait_and_start(c)
+        elif cmd == "servers" and len(sys.argv) > 2:
+            names = sys.argv[2:]
+            unknown = [n for n in names if n not in server_files()]
+            if unknown:
+                print(f"нет таких: {', '.join(unknown)}, есть: {', '.join(server_files())}")
+                return 1
+            ORDER.write_text(" ".join(names) + "\n", encoding="utf-8")
+            print("порядок:", " ".join(names))
+            upload_confs(c)
+            run(c, f'/container stop [find comment="{TAG}"]')
+            time.sleep(5)
+            wait_and_start(c)
+        elif cmd == "servers":
+            active = active_servers()
+            for i, n in enumerate(active, 1):
+                print(f"{i}. {n}")
+            for n in server_files():
+                if n not in active:
+                    print(f"-  {n} (выключен)")
         elif cmd == "conf":
             upload_confs(c)
             run(c, f'/container stop [find comment="{TAG}"]')
