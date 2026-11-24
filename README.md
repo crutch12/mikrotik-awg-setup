@@ -119,7 +119,7 @@ python ros.py "/system resource print"   любая команда на роут
 python vpn.py servers                 показать порядок
 python vpn.py servers second          только second, остальные выключены
 python vpn.py servers second main     second основной, main запасной
-python vpn.py servers main second usa все три, main основной
+python vpn.py servers main second third все три, main основной
 ```
 
 Команда сразу заливает конфиги на роутер и перезапускает контейнер, VPN пропадает секунд на 10-20. Порядок сохраняется в `servers/order.txt`, файлы серверов переименовывать не надо. Если удалить `order.txt`, снова работают все сервера по алфавиту
