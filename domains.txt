@@ -41,6 +41,9 @@ cloudcode-pa.googleapis.com
 x.ai
 grok.com
 
+# groq
+groq.com
+
 # perplexity
 perplexity.ai
 pplx.ai
